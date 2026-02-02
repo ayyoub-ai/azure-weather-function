@@ -1,8 +1,9 @@
 import logging
 import azure.functions as func
-import requests
-import os
+import urllib.request
+import urllib.parse
 import json
+import os
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     city = req.params.get('city', 'Casablanca')
@@ -10,13 +11,20 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     if not api_key:
         return func.HttpResponse("❌ Missing API key", status_code=500)
 
-    url = f"http://api.weatherapi.com/v1/current.json?key={api_key}&q={city}&lang=fr"
+    base_url = "http://api.weatherapi.com/v1/current.json"
+    params = {
+        'key': api_key,
+        'q': city,
+        'lang': 'fr'
+    }
+    url = base_url + '?' + urllib.parse.urlencode(params)
     
     try:
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        if response.status_code != 200:
-            msg = data.get('error', {}).get('message', 'Unknown')
+        with urllib.request.urlopen(url, timeout=10) as response:
+            data = json.loads(response.read().decode())
+        
+        if 'error' in data:
+            msg = data['error'].get('message', 'Unknown error')
             return func.HttpResponse(f"⚠️ {msg}", status_code=400)
 
         temp = int(data['current']['temp_c'])
@@ -29,9 +37,16 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         elif "soleil" in cond.lower() or "ensoleillé" in cond.lower(): emoji = "☀️"
         elif "orage" in cond.lower(): emoji = "⛈️"
 
+        result = {
+            "emoji": emoji,
+            "temp": temp,
+            "message": f"{cond} à {loc} !"
+        }
         return func.HttpResponse(
-            json.dumps({"emoji": emoji, "temp": temp, "message": f"{cond} à {loc} !"}, ensure_ascii=False),
-            mimetype="application/json"
+            json.dumps(result, ensure_ascii=False),
+            mimetype="application/json",
+            status_code=200
         )
+
     except Exception as e:
         return func.HttpResponse(f"💥 {str(e)}", status_code=500)
